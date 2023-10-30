@@ -1,149 +1,139 @@
 let overlayHandler = {
-    isOverlayVisible: false,
-    toggleOverlay: function() {
-        const overlay = document.getElementById('overlay');
-        this.isOverlayVisible = !this.isOverlayVisible;
+  isOverlayVisible: false,
+  toggleOverlay: function() {
+    const overlay = document.getElementById('overlay');
+    this.isOverlayVisible = !this.isOverlayVisible;
 
-        if (this.isOverlayVisible) {
-            overlay.style.display = 'block';
-        } else {
-            overlay.style.display = 'none';
-        }
+    if (this.isOverlayVisible) {
+      overlay.style.display = 'block';
+    } else {
+      overlay.style.display = 'none';
     }
+  }
 };
 
 let sessionId;
 let currentQuestionData = null;
 let questionHistory = [];
 let answers = {}; 
-let currentQuestionIndex = 0;  
+let currentQuestionIndex = 0;
+
+const answerScores = {
+  "매우 그렇다": 5,
+  "그렇다": 4,
+  "보통이다": 3,
+  "아니다": 2,
+  "매우 아니다": 1,
+};
+
+const mbtiQuestions = {
+  // ... 나머지 유형의 질문들 ...
+};
+
+// In-memory storage to hold user interactions
+const userSessions = {};
 
 function startTest() {
-    overlayHandler.toggleOverlay();
-    document.querySelector(".start-section").style.display = "none";
-    document.querySelector(".question-section").style.display = "block";
-    sessionId = Math.random().toString(36).substr(2, 9);
-    fetchQuestion();
-}
-
-function previousQuestion() {
-  if (currentQuestionIndex > 0) {
-    currentQuestionIndex--;
-    displayQuestion(questionHistory[currentQuestionIndex]);
-  }
-}
-
-function nextQuestion() {
-  if (currentQuestionIndex < questionHistory.length - 1) {
-    currentQuestionIndex++;
-    displayQuestion(questionHistory[currentQuestionIndex]);
-  } else {
-    submitAnswer(null);
-  }
+  overlayHandler.toggleOverlay();
+  document.querySelector(".start-section").style.display = "none";
+  document.querySelector(".question-section").style.display = "block";
+  sessionId = Math.random().toString(36).substr(2, 9);
+  fetchQuestion();
 }
 
 function fetchQuestion() {
-  fetch("http://localhost:4000/PEPEROmbti", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      sessionId: sessionId,
-    }),
-  })
-    .then((response) => response.json())
-    .then((data) => {
-      if (data && data.assistant) {
-        questionHistory.push(data);
-        currentQuestionData = data;
-        displayQuestion(data);
-      }
-    })
-    .catch((error) => console.error("Error:", error));
+  processQuestion(null); // 초기 시작
 }
 
-function submitAnswer(answer) {
-  if (answer !== null) {
-    answers[currentQuestionData.assistant] = answer;
+function processQuestion(userAnswer) {
+  const sessionIdLocal = sessionId || "defaultSession";
+
+  if (!userSessions[sessionIdLocal]) {
+    userSessions[sessionIdLocal] = {
+      currentCategoryIndex: 0,
+      currentQuestionIndex: 0,
+      interactions: [],
+      scores: {},
+    };
   }
 
-  if (!currentQuestionData) {
-    console.warn("currentQuestionData is undefined. Cannot proceed.");
-    return;
-  }
+  const currentCategory =
+    Object.keys(mbtiQuestions)[userSessions[sessionIdLocal].currentCategoryIndex];
 
-  currentQuestionData.userAnswer = answer;
-
-  fetch("http://localhost:4000/PEPEROmbti", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      sessionId: sessionId,
-      userAnswer: answer,
-    }),
-  })
-    .then((response) => response.json())
-    .then((data) => {
-      if (data.assistant === "질문이 더 이상 없습니다.") {
-        showConfirmationForResults();
-      } else {
-        questionHistory.push(data);
-        currentQuestionIndex++; // 질문 인덱스 증가
-        displayQuestion(data);
-      }
-    })
-    .catch((error) => console.error("Error:", error));
-}
-/*
-if (!currentQuestionData) {
-  console.warn("currentQuestionData is undefined. Cannot proceed.");
-  return;
-}
-
-currentQuestionData.userAnswer = answer;
-
-fetch("http://localhost:4000/PEPEROmbti", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    sessionId: sessionId,
-    userAnswer: answer,
-  }),
-})
-  .then((response) => response.json())
-  .then((data) => {
-    if (data.assistant === "질문이 더 이상 없습니다.") {
-      showConfirmationForResults(); // Show confirmation before showing results
-    } else {
-      questionHistory.push(data);
-      displayQuestion(data);
+  if (userAnswer) {
+    if (!userSessions[sessionIdLocal].scores[currentCategory]) {
+      userSessions[sessionIdLocal].scores[currentCategory] = 0;
     }
-  })
-  .catch((error) => console.error("Error:", error));
-*/
-function displayQuestion(data) {
-  const questionElement = document.getElementById("question");
-  if (questionElement && data.assistant) {
-    questionElement.innerText = data.assistant;
-
-    const buttons = document.querySelectorAll(
-      ".question-section button:not(.navigation-buttons button)"
-    );
-    buttons.forEach((button) => {
-      button.style.backgroundColor = "";
-      if (
-        answers[data.assistant] &&
-        button.innerText === answers[data.assistant]
-      ) {
-        button.style.backgroundColor = "blue";
-      }
-    });
+    userSessions[sessionIdLocal].scores[currentCategory] += answerScores[userAnswer];
   }
+
+  let assistantReply;
+  if (
+    userSessions[sessionIdLocal].currentQuestionIndex <
+    mbtiQuestions[currentCategory].length
+  ) {
+    assistantReply =
+      mbtiQuestions[currentCategory][
+        userSessions[sessionIdLocal].currentQuestionIndex
+      ];
+    userSessions[sessionIdLocal].currentQuestionIndex += 1;
+  } else {
+    userSessions[sessionIdLocal].currentCategoryIndex += 1;
+    userSessions[sessionIdLocal].currentQuestionIndex = 0;
+
+    const nextCategory =
+      Object.keys(mbtiQuestions)[userSessions[sessionIdLocal].currentCategoryIndex];
+    if (nextCategory) {
+      assistantReply = mbtiQuestions[nextCategory][0];
+      userSessions[sessionIdLocal].currentQuestionIndex += 1;
+    } else {
+      assistantReply = "질문이 더 이상 없습니다.";
+    }
+  }
+
+  userSessions[sessionIdLocal].interactions.push({
+    role: "assistant",
+    content: assistantReply,
+  });
+
+  currentQuestionData = {
+    assistant: assistantReply,
+    sessionId: sessionIdLocal,
+    totalScores: userSessions[sessionIdLocal].scores,
+  };
+
+  questionHistory.push(currentQuestionData);
+  displayQuestion(currentQuestionData);
+}
+
+// ... 나머지 코드 ...
+
+
+// ... (생략된 중간 코드) ...
+
+function handleAnswer(questionType, answer) {
+  const score = answerScores[answer];
+  const userMbtiScores = {
+    E: 0,
+    I: 0,
+    T: 0,
+    F: 0,
+    J: 0,
+    P: 0,
+  };
+  userMbtiScores[questionType] += score;
+}
+
+handleAnswer('E', '매우 그렇다');
+handleAnswer('I', '보통이다');
+
+function calculatePersonality(scores) {
+  let personality = "";
+  personality += scores.E > scores.I ? "E" : "I";
+  personality += Math.random() < 0.5 ? "S" : "N";
+  personality += scores.T > scores.F ? "T" : "F";
+  personality += scores.J > scores.P ? "J" : "P";
+  return personality;
 }
 
 // ... 기존 코드 ...
@@ -208,7 +198,31 @@ function displayQuestion(data) {
     }
 }
 
-    
+    // 사용자의 답변을 처리하는 함수
+function handleAnswer(questionType, answer) {
+  // 해당 질문 유형(E, I, T, F, J, P)에 대한 점수를 계산
+  const score = answerScores[answer];
+  
+  // 예를 들어, 사용자의 MBTI 점수를 저장하는 객체
+  const userMbtiScores = {
+    E: 0,
+    I: 0,
+    T: 0,
+    F: 0,
+    J: 0,
+    P: 0,
+  };
+
+  // 사용자의 점수를 갱신
+  userMbtiScores[questionType] += score;
+
+  // 나머지 로직을 추가할 수 있음 (예: 다음 질문 표시, 결과 계산 등)
+}
+
+// 예제 사용 방법
+handleAnswer('E', '매우 그렇다'); // E 유형에 대한 점수를 매우 그렇다(5점)으로 처리
+handleAnswer('I', '보통이다'); // I 유형에 대한 점수를 보통이다(3점)으로 처리
+
   
 
 function calculatePersonality(scores) {
@@ -309,36 +323,7 @@ function getPeperoTypeAndDescription(personality) {
         peperoTypes[personality] || {
           type: "기본 빼빼로",
           description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
-          type: "기본 빼빼로",
-          description: "기본 빼빼로는 모든 성격 유형에게 잘 어울립니다.",
+         
     
         }
 
